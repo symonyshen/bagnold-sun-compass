@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/app_state.dart';
-import '../services/location_service.dart';
 import 'compass_screen.dart';
 
 class LocationScreen extends StatefulWidget {
@@ -16,59 +15,12 @@ class _LocationScreenState extends State<LocationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _latController = TextEditingController();
   final _lngController = TextEditingController();
-  final _locationService = const LocationService();
-
-  bool _isFetchingGps = false;
-  String? _gpsError;
-
-  // -------------------------------------------------------------------------
-  // Lifecycle
-  // -------------------------------------------------------------------------
 
   @override
   void dispose() {
     _latController.dispose();
     _lngController.dispose();
     super.dispose();
-  }
-
-  // -------------------------------------------------------------------------
-  // Actions
-  // -------------------------------------------------------------------------
-
-  Future<void> _fetchGpsLocation() async {
-    setState(() {
-      _isFetchingGps = true;
-      _gpsError = null;
-    });
-
-    try {
-      final result = await _locationService.getCurrentLocation();
-      if (result == null) {
-        setState(() {
-          _gpsError = 'Location permission denied. Enter coordinates manually.';
-        });
-        return;
-      }
-      final (lat, lng) = result;
-      setState(() {
-        _latController.text = lat.toStringAsFixed(6);
-        _lngController.text = lng.toStringAsFixed(6);
-        _gpsError = null;
-      });
-    } on LocationServiceException catch (e) {
-      setState(() {
-        _gpsError = e.message;
-      });
-    } catch (e) {
-      setState(() {
-        _gpsError = 'Unexpected error: $e';
-      });
-    } finally {
-      setState(() {
-        _isFetchingGps = false;
-      });
-    }
   }
 
   void _startNavigating() {
@@ -86,10 +38,6 @@ class _LocationScreenState extends State<LocationScreen> {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Validators
-  // -------------------------------------------------------------------------
-
   String? _validateLatitude(String? value) {
     if (value == null || value.trim().isEmpty) return 'Latitude is required.';
     final v = double.tryParse(value.trim());
@@ -106,10 +54,6 @@ class _LocationScreenState extends State<LocationScreen> {
     return null;
   }
 
-  // -------------------------------------------------------------------------
-  // Build
-  // -------------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -123,7 +67,6 @@ class _LocationScreenState extends State<LocationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── Header ──────────────────────────────────────────────────
                 const SizedBox(height: 16),
                 Icon(
                   Icons.wb_sunny_outlined,
@@ -148,12 +91,18 @@ class _LocationScreenState extends State<LocationScreen> {
 
                 const SizedBox(height: 48),
 
-                // ── Coordinate fields ────────────────────────────────────────
                 Text(
-                  'COORDINATES',
+                  'ENTER YOUR COORDINATES',
                   style: theme.textTheme.titleMedium?.copyWith(fontSize: 12),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 4),
+                Text(
+                  'Find them in Google Maps: tap and hold your position → read the coordinates shown.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF9E7E3A),
+                  ),
+                ),
+                const SizedBox(height: 16),
 
                 TextFormField(
                   controller: _latController,
@@ -200,41 +149,8 @@ class _LocationScreenState extends State<LocationScreen> {
                   onFieldSubmitted: (_) => _startNavigating(),
                 ),
 
-                const SizedBox(height: 20),
-
-                // ── GPS button ───────────────────────────────────────────────
-                OutlinedButton.icon(
-                  onPressed: _isFetchingGps ? null : _fetchGpsLocation,
-                  icon: _isFetchingGps
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Color(0xFFD4A017),
-                          ),
-                        )
-                      : const Icon(Icons.gps_fixed),
-                  label: Text(
-                    _isFetchingGps ? 'Locating…' : 'USE GPS',
-                  ),
-                ),
-
-                if (_gpsError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    _gpsError!,
-                    style: TextStyle(
-                      color: theme.colorScheme.error,
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-
                 const SizedBox(height: 40),
 
-                // ── Start button ─────────────────────────────────────────────
                 ElevatedButton.icon(
                   onPressed: _startNavigating,
                   icon: const Icon(Icons.explore),

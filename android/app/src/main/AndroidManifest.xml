@@ -1,14 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Location permissions for GPS functionality -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-
-    <!-- Internet permission (required by some Flutter packages) -->
-    <uses-permission android:name="android.permission.INTERNET"/>
-
-    <application
+<application
         android:label="Sun Compass"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
