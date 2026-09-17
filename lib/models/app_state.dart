@@ -1,23 +1,34 @@
+import 'checkpoint.dart';
+
 /// Holds the application-level state passed between screens.
 class AppState {
-  /// Latitude of the user's position, in decimal degrees.
-  final double latitude;
+  /// The full history of confirmed coordinate checkpoints (initial entry +
+  /// every manual "Update Location"). Always non-empty — the last entry is
+  /// the current dead-reckoning origin.
+  final List<Checkpoint> checkpoints;
 
-  /// Longitude of the user's position, in decimal degrees.
-  final double longitude;
-
-  /// The desired travel heading in degrees (0–360, clockwise from North).
+  /// The desired travel heading in degrees (0–360, clockwise from North),
+  /// as currently set on the dial.
   final double desiredHeading;
 
-  /// When the coordinates were last set or confirmed by the user.
-  final DateTime coordsUpdatedAt;
+  /// Walking speed in km/h, used for dead reckoning. `0` means dead
+  /// reckoning is off — the position shown is just the last checkpoint.
+  final double speedKmh;
 
   const AppState({
-    required this.latitude,
-    required this.longitude,
+    required this.checkpoints,
     required this.desiredHeading,
-    required this.coordsUpdatedAt,
+    required this.speedKmh,
   });
+
+  /// Latitude of the current dead-reckoning origin, in decimal degrees.
+  double get latitude => checkpoints.last.latitude;
+
+  /// Longitude of the current dead-reckoning origin, in decimal degrees.
+  double get longitude => checkpoints.last.longitude;
+
+  /// When the current origin checkpoint was confirmed.
+  DateTime get coordsUpdatedAt => checkpoints.last.timestamp;
 
   /// Creates an initial state with a given location and a default heading of 0°.
   factory AppState.initial({
@@ -25,28 +36,52 @@ class AppState {
     required double longitude,
   }) {
     return AppState(
-      latitude: latitude,
-      longitude: longitude,
+      checkpoints: [
+        Checkpoint(
+          latitude: latitude,
+          longitude: longitude,
+          heading: 0,
+          timestamp: DateTime.now(),
+        ),
+      ],
       desiredHeading: 0,
-      coordsUpdatedAt: DateTime.now(),
+      speedKmh: 0,
     );
   }
 
   AppState copyWith({
-    double? latitude,
-    double? longitude,
+    List<Checkpoint>? checkpoints,
     double? desiredHeading,
-    DateTime? coordsUpdatedAt,
+    double? speedKmh,
   }) {
     return AppState(
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
+      checkpoints: checkpoints ?? this.checkpoints,
       desiredHeading: desiredHeading ?? this.desiredHeading,
-      coordsUpdatedAt: coordsUpdatedAt ?? this.coordsUpdatedAt,
+      speedKmh: speedKmh ?? this.speedKmh,
     );
+  }
+
+  /// Appends a new confirmed checkpoint (e.g. from "Update Location"),
+  /// snapshotting the current [desiredHeading] into it. This becomes the
+  /// new dead-reckoning origin.
+  AppState withNewCheckpoint({
+    required double latitude,
+    required double longitude,
+    required DateTime timestamp,
+  }) {
+    return copyWith(checkpoints: [
+      ...checkpoints,
+      Checkpoint(
+        latitude: latitude,
+        longitude: longitude,
+        heading: desiredHeading,
+        timestamp: timestamp,
+      ),
+    ]);
   }
 
   @override
   String toString() => 'AppState(lat: $latitude, lng: $longitude, '
-      'heading: $desiredHeading°, updatedAt: $coordsUpdatedAt)';
+      'heading: $desiredHeading°, speed: $speedKmh km/h, '
+      'checkpoints: ${checkpoints.length})';
 }

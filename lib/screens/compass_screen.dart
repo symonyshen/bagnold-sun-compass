@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 
 import '../models/app_state.dart';
 import '../models/sun_position.dart';
+import '../services/dead_reckoning_service.dart';
 import '../services/sun_calculator.dart';
 import '../widgets/dial_widget.dart';
 import '../widgets/shadow_indicator.dart';
 import 'location_screen.dart';
+import 'path_screen.dart';
 
 class CompassScreen extends StatefulWidget {
   final AppState appState;
@@ -19,11 +21,14 @@ class CompassScreen extends StatefulWidget {
 
 class _CompassScreenState extends State<CompassScreen> {
   static const _calculator = SunCalculator();
+  static const _deadReckoning = DeadReckoningService();
 
   late AppState _state;
   late SunPosition _sunPosition;
   late Timer _ticker;
   DateTime _now = DateTime.now();
+  ({double latitude, double longitude})? _estimatedPosition;
+  bool _isPositionUpdateActive = true;
 
   // -------------------------------------------------------------------------
   // Lifecycle
@@ -34,12 +39,16 @@ class _CompassScreenState extends State<CompassScreen> {
     super.initState();
     _state = widget.appState;
     _sunPosition = _recalculate(_state);
+    _estimatedPosition = _recalculateEstimate(_state, _now);
 
     // Tick every second to update elapsed timer and recalculate sun position.
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() {
         _now = DateTime.now();
         _sunPosition = _recalculate(_state);
+        if (_isPositionUpdateActive) {
+          _estimatedPosition = _recalculateEstimate(_state, _now);
+        }
       });
     });
   }
@@ -59,6 +68,23 @@ class _CompassScreenState extends State<CompassScreen> {
       state.latitude,
       state.longitude,
       DateTime.now(),
+    );
+  }
+
+  /// Returns the live dead-reckoning estimate, or null if speed is 0 (dead
+  /// reckoning off — the origin checkpoint is shown as-is).
+  ({double latitude, double longitude})? _recalculateEstimate(
+    AppState state,
+    DateTime now,
+  ) {
+    if (state.speedKmh <= 0) return null;
+    final origin = state.checkpoints.last;
+    return _deadReckoning.estimatePosition(
+      originLat: origin.latitude,
+      originLng: origin.longitude,
+      headingDeg: origin.heading,
+      speedKmh: state.speedKmh,
+      elapsed: now.difference(origin.timestamp),
     );
   }
 
@@ -86,9 +112,34 @@ class _CompassScreenState extends State<CompassScreen> {
     });
   }
 
+  void _togglePositionUpdate() {
+    setState(() {
+      if (!_isPositionUpdateActive) {
+        // Resuming: re-anchor dead reckoning at the frozen position so it
+        // continues from here instead of jumping forward by the time spent
+        // paused.
+        if (_estimatedPosition != null) {
+          _state = _state.withNewCheckpoint(
+            latitude: _estimatedPosition!.latitude,
+            longitude: _estimatedPosition!.longitude,
+            timestamp: _now,
+          );
+        }
+        _estimatedPosition = _recalculateEstimate(_state, _now);
+      }
+      _isPositionUpdateActive = !_isPositionUpdateActive;
+    });
+  }
+
   void _goToLocationScreen() {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LocationScreen()),
+      MaterialPageRoute(builder: (_) => LocationScreen(existingState: _state)),
+    );
+  }
+
+  void _goToPathScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => PathScreen(appState: _state)),
     );
   }
 
@@ -111,6 +162,13 @@ class _CompassScreenState extends State<CompassScreen> {
           tooltip: 'Update Location',
           onPressed: _goToLocationScreen,
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.route),
+            tooltip: 'View Path',
+            onPressed: _goToPathScreen,
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -128,17 +186,37 @@ class _CompassScreenState extends State<CompassScreen> {
             _buildHeadingReadout(heading),
 
             // ── Info panel ───────────────────────────────────────────────────
-            _buildInfoPanel(elapsedText),
+            _buildInfoPanel(elapsedText, _estimatedPosition),
 
             const SizedBox(height: 16),
 
-            // ── Update location button ────────────────────────────────────────
+            // ── Position update + Update location buttons ───────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: ElevatedButton.icon(
-                onPressed: _goToLocationScreen,
-                icon: const Icon(Icons.my_location),
-                label: const Text('UPDATE LOCATION'),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _togglePositionUpdate,
+                      icon: Icon(
+                        _isPositionUpdateActive
+                            ? Icons.pause
+                            : Icons.play_arrow,
+                      ),
+                      label: Text(
+                        _isPositionUpdateActive ? 'STOP UPDATE' : 'START UPDATE',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _goToLocationScreen,
+                      icon: const Icon(Icons.my_location),
+                      label: const Text('UPDATE LOCATION'),
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -216,7 +294,15 @@ class _CompassScreenState extends State<CompassScreen> {
     );
   }
 
-  Widget _buildInfoPanel(String elapsedText) {
+  Widget _buildInfoPanel(
+    String elapsedText,
+    ({double latitude, double longitude})? estimatedPosition,
+  ) {
+    final showEstimate = estimatedPosition != null;
+    final posLat = showEstimate ? estimatedPosition.latitude : _state.latitude;
+    final posLng =
+        showEstimate ? estimatedPosition.longitude : _state.longitude;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -227,12 +313,18 @@ class _CompassScreenState extends State<CompassScreen> {
       ),
       child: Column(
         children: [
-          // Row 1 — coordinates
+          // Row 1 — coordinates (live dead-reckoning estimate, or the last
+          // confirmed checkpoint if no speed has been set)
           _infoRow(
             icon: Icons.location_on_outlined,
-            label: 'POSITION',
-            value:
-                '${_fmtCoord(_state.latitude)}°,  ${_fmtCoord(_state.longitude)}°',
+            label: !showEstimate
+                ? 'POSITION'
+                : (_isPositionUpdateActive
+                    ? 'POSITION (EST.)'
+                    : 'POSITION (PAUSED)'),
+            value: '${_fmtCoord(posLat)}°,  ${_fmtCoord(posLng)}°',
+            valueColor:
+                showEstimate ? const Color(0xFFFFDD44) : const Color(0xFFE8D5A3),
           ),
           const Divider(color: Color(0xFF3A2A0A), height: 16),
 
